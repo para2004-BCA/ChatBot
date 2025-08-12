@@ -1,0 +1,40 @@
+table:
+  name: messages
+  schema: public
+object_relationships:
+  - name: chat
+    using:
+      foreign_key_constraint_on: chat_id
+select_permissions:
+  - role: user
+    permission:
+      columns: ['id', 'chat_id', 'role', 'content', 'created_at', 'user_id']
+      filter:
+        _and:
+          - chat: { user_id: { _eq: 'X-Hasura-User-Id' } }
+insert_permissions:
+  - role: user
+    permission:
+      check:
+        _and:
+          - _or:
+              - role: { _eq: 'user' }
+              - role: { _eq: 'assistant' }
+          - chat: { user_id: { _eq: 'X-Hasura-User-Id' } }
+      set:
+        user_id: 'X-Hasura-User-Id'
+      columns: ['chat_id', 'role', 'content']
+update_permissions:
+  - role: user
+    permission:
+      columns: ['content']
+      filter:
+        _and:
+          - user_id: { _eq: 'X-Hasura-User-Id' }
+          - role: { _eq: 'user' }
+delete_permissions:
+  - role: user
+    permission:
+      filter:
+        _and:
+          - user_id: { _eq: 'X-Hasura-User-Id' }

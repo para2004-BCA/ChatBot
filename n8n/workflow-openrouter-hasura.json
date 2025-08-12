@@ -1,0 +1,217 @@
+{
+  "name": "Hasura Action: sendMessage -> OpenRouter -> Save message",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hasura/send-message",
+        "respond": true,
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "Webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 3,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract body and headers\nconst body = $json.input?.arguments || $json;\nconst headers = $json.headers || {};\n\nconst chat_id = body.chat_id || body.input?.chat_id;\nconst message = body.message || body.input?.message;\nconst userId = headers['x-hasura-user-id'] || headers['X-Hasura-User-Id'];\n\nif (!chat_id || !message || !userId) {\n  throw new Error('Missing chat_id, message, or x-hasura-user-id');\n}\n\nreturn [{ chat_id, message, userId }];"
+      },
+      "id": "PrepVars",
+      "name": "Prep Vars",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [520, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.HASURA_GRAPHQL_ENDPOINT || 'https://YOUR_NHOST_SUBDOMAIN.region.nhost.run/v1/graphql'}}",
+        "options": {},
+        "sendQuery": true,
+        "query": "query GetChat($id: uuid!) { chats_by_pk(id: $id) { id user_id } }",
+        "variables": "={ \"id\": $json.chat_id }",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpBasicAuth"
+      },
+      "id": "CheckChat",
+      "name": "Hasura: Check chat owner",
+      "type": "n8n-nodes-base.graphql",
+      "typeVersion": 3,
+      "position": [780, 200],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "hasura-admin-bearer",
+          "name": "Hasura Admin Bearer"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const row = items[0].json.data?.chats_by_pk;\nif (!row || row.user_id !== $json.userId) {\n  throw new Error('Forbidden: chat does not belong to user');\n}\nreturn items;"
+      },
+      "id": "GuardOwnership",
+      "name": "Guard ownership",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [1040, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "options": {},
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "jsonParameters": true,
+        "options\u00B7contentType": "json",
+        "sendBody": true,
+        "bodyParametersJson": "={ \n  \"model\": $env.OPENROUTER_MODEL || 'openrouter/auto',\n  \"messages\": [\n    { \"role\": \"system\", \"content\": \"You are a concise helpful assistant.\" },\n    { \"role\": \"user\", \"content\": $json.message }\n  ]\n}"
+      },
+      "id": "OpenRouter",
+      "name": "OpenRouter: chat",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [780, 420],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openrouter-api",
+          "name": "OpenRouter API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const choice = $json.choices?.[0]?.message?.content || '';\nreturn [{ reply: choice }];"
+      },
+      "id": "ExtractReply",
+      "name": "Extract reply",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [1040, 420]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.HASURA_GRAPHQL_ENDPOINT || 'https://YOUR_NHOST_SUBDOMAIN.region.nhost.run/v1/graphql'}}",
+        "sendQuery": true,
+        "query": "mutation InsertAssistant($chat_id: uuid!, $content: String!) { insert_messages_one(object: {chat_id: $chat_id, role: \"assistant\", content: $content}) { id } }",
+        "variables": "={ \"chat_id\": $json.chat_id, \"content\": $json.reply }",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpBasicAuth"
+      },
+      "id": "InsertAssistant",
+      "name": "Hasura: insert assistant message",
+      "type": "n8n-nodes-base.graphql",
+      "typeVersion": 3,
+      "position": [1300, 420],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "hasura-admin-bearer",
+          "name": "Hasura Admin Bearer"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "responseCode": 200,
+        "responseBody": "={ { reply: $json.reply } }"
+      },
+      "id": "Respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 420]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prep Vars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Vars": {
+      "main": [
+        [
+          {
+            "node": "Hasura: Check chat owner",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "OpenRouter: chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hasura: Check chat owner": {
+      "main": [
+        [
+          {
+            "node": "Guard ownership",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard ownership": {
+      "main": [
+        [
+          {
+            "node": "OpenRouter: chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter: chat": {
+      "main": [
+        [
+          {
+            "node": "Extract reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract reply": {
+      "main": [
+        [
+          {
+            "node": "Hasura: insert assistant message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hasura: insert assistant message": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "meta": {
+    "instanceId": ""
+  },
+  "settings": {}
+}
