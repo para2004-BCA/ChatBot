@@ -1,0 +1,27 @@
+table:
+  name: chats
+  schema: public
+select_permissions:
+  - role: user
+    permission:
+      columns: ['id', 'title', 'created_at', 'updated_at', 'user_id']
+      filter:
+        user_id: { _eq: 'X-Hasura-User-Id' }
+insert_permissions:
+  - role: user
+    permission:
+      check: {}
+      set:
+        user_id: 'X-Hasura-User-Id'
+      columns: ['title']
+update_permissions:
+  - role: user
+    permission:
+      columns: ['title']
+      filter:
+        user_id: { _eq: 'X-Hasura-User-Id' }
+delete_permissions:
+  - role: user
+    permission:
+      filter:
+        user_id: { _eq: 'X-Hasura-User-Id' }
